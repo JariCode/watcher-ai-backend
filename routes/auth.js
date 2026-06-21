@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import requireAuth from '../middleware/requireAuth.js';
 
 // Luodaan reititin johon kerätään auth-reitit
 const router = express.Router();
@@ -93,6 +94,24 @@ router.post('/logout', (req, res) => {
   // Poistetaan token-eväste
   res.clearCookie('token');
   res.json({ message: 'Uloskirjautuminen onnistui.' });
+});
+
+// --- KUKA ON KIRJAUTUNUT ---
+// Frontend kutsuu tätä latautuessaan: jos token on voimassa, palautetaan käyttäjä
+router.get('/me', requireAuth, async (req, res) => {
+  try {
+    // Haetaan käyttäjä id:llä, mutta EI palauteta salasanaa
+    const user = await User.findById(req.userId).select('username');
+
+    if (!user) {
+      return res.status(404).json({ error: 'Käyttäjää ei löytynyt.' });
+    }
+
+    res.json({ id: user._id, username: user.username });
+  } catch (error) {
+    console.error('Käyttäjän haku epäonnistui:', error.message);
+    res.status(500).json({ error: 'Käyttäjän haku epäonnistui.' });
+  }
 });
 
 export default router;

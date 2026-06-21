@@ -6,6 +6,8 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
+import requireAuth from './middleware/requireAuth.js';
+import conversationRoutes from './routes/conversations.js';
 
 // Luetaan .env-tiedoston muuttujat käyttöön
 dotenv.config();
@@ -38,6 +40,9 @@ app.get('/api/test', (req, res) => {
 // --- Reitit ---
 // Auth-reitit (rekisteröinti, kirjautuminen, uloskirjautuminen)
 app.use('/api/auth', authRoutes);
+
+// Keskustelureitit (vaativat kirjautumisen)
+app.use('/api/conversations', conversationRoutes);
 
 // --- Yhteys MongoDB Atlasiin ---
 mongoose.connect(process.env.MONGO_URI)
