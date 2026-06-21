@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import authRoutes from './routes/auth.js';
 import requireAuth from './middleware/requireAuth.js';
 import conversationRoutes from './routes/conversations.js';
+import adminRoutes from './routes/admin.js';
 
 // Luodaan Express-sovellus
 const app = express();
@@ -40,6 +41,9 @@ app.use('/api/auth', authRoutes);
 
 // Keskustelureitit (vaativat kirjautumisen)
 app.use('/api/conversations', conversationRoutes);
+
+// Admin-reitit (vaativat admin-roolin)
+app.use('/api/admin', adminRoutes);
 
 // --- Yhteys MongoDB Atlasiin ---
 mongoose.connect(process.env.MONGO_URI)

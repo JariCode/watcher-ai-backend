@@ -55,7 +55,7 @@ router.post('/register', async (req, res) => {
     setTokenCookie(res, user._id);
 
     // Palautetaan käyttäjän tiedot (EI salasanaa)
-    res.status(201).json({ id: user._id, username: user.username });
+    res.status(201).json({ id: user._id, username: user.username, role: user.role });
   } catch (error) {
     console.error('Rekisteröintivirhe:', error.message);
     res.status(500).json({ error: 'Rekisteröinti epäonnistui.' });
@@ -83,7 +83,7 @@ router.post('/login', async (req, res) => {
     // Kirjataan sisään
     setTokenCookie(res, user._id);
 
-    res.json({ id: user._id, username: user.username });
+    res.json({ id: user._id, username: user.username, role: user.role });
   } catch (error) {
     console.error('Kirjautumisvirhe:', error.message);
     res.status(500).json({ error: 'Kirjautuminen epäonnistui.' });
@@ -101,14 +101,14 @@ router.post('/logout', (req, res) => {
 // Frontend kutsuu tätä latautuessaan: jos token on voimassa, palautetaan käyttäjä
 router.get('/me', requireAuth, async (req, res) => {
   try {
-    // Haetaan käyttäjä id:llä, mutta EI palauteta salasanaa
-    const user = await User.findById(req.userId).select('username');
+    // Haetaan käyttäjä, mukaan myös rooli
+    const user = await User.findById(req.userId).select('username role');
 
     if (!user) {
       return res.status(404).json({ error: 'Käyttäjää ei löytynyt.' });
     }
 
-    res.json({ id: user._id, username: user.username });
+    res.json({ id: user._id, username: user.username, role: user.role });
   } catch (error) {
     console.error('Käyttäjän haku epäonnistui:', error.message);
     res.status(500).json({ error: 'Käyttäjän haku epäonnistui.' });
