@@ -128,13 +128,19 @@ router.post('/:id/messages', async (req, res) => {
 
     // Kutsutaan OpenAI:ta
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: apiMessages,
-      max_tokens: 300,
-    });
+          model: 'gpt-5',
+          messages: apiMessages,
+          reasoning_effort: 'minimal',
+          max_completion_tokens: 2000,
+        });
 
-    // Otetaan Watcherin vastaus
+   // Otetaan Watcherin vastaus
     const watcherReply = completion.choices[0].message.content;
+
+    // Suoja: jos vastaus on tyhjä, ei tallenneta tyhjää (välttää kaatumisen)
+    if (!watcherReply || !watcherReply.trim()) {
+      return res.status(502).json({ error: 'Watcher ei löytänyt sanoja. Yritä uudelleen.' });
+    }
 
     // Lisätään Watcherin vastaus keskusteluun
     conversation.messages.push({ role: 'watcher', text: watcherReply });
