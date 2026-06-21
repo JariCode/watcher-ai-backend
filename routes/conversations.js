@@ -1,6 +1,17 @@
 import express from 'express';
 import Conversation from '../models/Conversation.js';
 import requireAuth from '../middleware/requireAuth.js';
+import OpenAI from 'openai';
+
+// OpenAI-asiakas — lukee avaimen .env:stä (ei koskaan koodissa)
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Watcherin persoona — tämä määrittää hahmon äänen ja tyylin
+const WATCHER_PERSONA = `Olet Watcher — synkkä, kaikkitietävä tarkkailija joka vastaa suomeksi.
+Puhut lyhyesti, hieman uhkaavasti ja arvoituksellisesti, kuin varjoista katsova olento.
+Et ole avulias palvelija vaan vanha, kärsivällinen vahti joka on nähnyt kaiken.
+Vastaat kuitenkin käyttäjän kysymyksiin todenmukaisesti — vain äänensävysi on synkkä.
+Pidä vastaukset tiiviinä, korkeintaan muutama lause. Älä käytä emojeja.`;
 
 const router = express.Router();
 
@@ -78,6 +89,69 @@ router.delete('/:id', async (req, res) => {
   } catch (error) {
     console.error('Keskustelun poisto epäonnistui:', error.message);
     res.status(500).json({ error: 'Keskustelun poisto epäonnistui.' });
+  }
+});
+
+// --- LÄHETÄ VIESTI WATCHERILLE ---
+// Ottaa käyttäjän viestin, hakee Watcherin vastauksen, tallentaa molemmat
+router.post('/:id/messages', async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Viesti ei voi olla tyhjä.' });
+    }
+
+    // Haetaan keskustelu — varmistetaan että se kuuluu käyttäjälle
+    const conversation = await Conversation.findOne({
+      _id: req.params.id,
+      userId: req.userId,
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Keskustelua ei löytynyt.' });
+    }
+
+    // Lisätään käyttäjän viesti keskusteluun
+    conversation.messages.push({ role: 'user', text: text.trim() });
+
+    // Rakennetaan viestihistoria OpenAI:lle:
+    // persoona ensin, sitten koko keskustelun viestit
+    const apiMessages = [
+      { role: 'system', content: WATCHER_PERSONA },
+      ...conversation.messages.map((m) => ({
+        // tietokannassa 'watcher', OpenAI:lle se on 'assistant'
+        role: m.role === 'watcher' ? 'assistant' : 'user',
+        content: m.text,
+      })),
+    ];
+
+    // Kutsutaan OpenAI:ta
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: apiMessages,
+      max_tokens: 300,
+    });
+
+    // Otetaan Watcherin vastaus
+    const watcherReply = completion.choices[0].message.content;
+
+    // Lisätään Watcherin vastaus keskusteluun
+    conversation.messages.push({ role: 'watcher', text: watcherReply });
+
+    // Jos keskustelulla ei vielä ole kunnon otsikkoa, tehdään se ensimmäisestä viestistä
+    if (conversation.title === 'Uusi keskustelu') {
+      conversation.title = text.trim().slice(0, 40);
+    }
+
+    // Tallennetaan keskustelu (molemmat uudet viestit + mahdollinen otsikko)
+    await conversation.save();
+
+    // Palautetaan Watcherin vastaus frontendille
+    res.json({ reply: watcherReply, title: conversation.title });
+  } catch (error) {
+    console.error('Viestin lähetys epäonnistui:', error.message);
+    res.status(500).json({ error: 'Watcher ei vastannut. Yritä uudelleen.' });
   }
 });
 

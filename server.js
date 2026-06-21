@@ -1,16 +1,13 @@
 // Tuodaan tarvittavat kirjastot
+import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import requireAuth from './middleware/requireAuth.js';
 import conversationRoutes from './routes/conversations.js';
-
-// Luetaan .env-tiedoston muuttujat käyttöön
-dotenv.config();
 
 // Luodaan Express-sovellus
 const app = express();
