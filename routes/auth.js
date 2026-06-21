@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import requireAuth from '../middleware/requireAuth.js';
+import Conversation from '../models/Conversation.js';
 
 // Luodaan reititin johon kerätään auth-reitit
 const router = express.Router();
@@ -111,6 +112,44 @@ router.get('/me', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Käyttäjän haku epäonnistui:', error.message);
     res.status(500).json({ error: 'Käyttäjän haku epäonnistui.' });
+  }
+});
+
+// --- TILIN POISTO ---
+// Vaatii salasanan varmistukseksi. Poistaa käyttäjän JA kaikki hänen keskustelunsa.
+router.delete('/delete', requireAuth, async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ error: 'Salasana vaaditaan tilin poistoon.' });
+    }
+
+    // Haetaan käyttäjä
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Käyttäjää ei löytynyt.' });
+    }
+
+    // Varmistetaan salasana ennen poistoa
+    const passwordOk = await bcrypt.compare(password, user.password);
+    if (!passwordOk) {
+      return res.status(401).json({ error: 'Väärä salasana.' });
+    }
+
+    // Poistetaan kaikki käyttäjän keskustelut
+    await Conversation.deleteMany({ userId: req.userId });
+
+    // Poistetaan käyttäjä
+    await User.findByIdAndDelete(req.userId);
+
+    // Poistetaan token-eväste (kirjaudutaan ulos)
+    res.clearCookie('token');
+
+    res.json({ message: 'Tili ja kaikki keskustelut poistettu.' });
+  } catch (error) {
+    console.error('Tilin poisto epäonnistui:', error.message);
+    res.status(500).json({ error: 'Tilin poisto epäonnistui.' });
   }
 });
 
