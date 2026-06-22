@@ -25,7 +25,8 @@ app.use(cors({
 }));
 
 // Muuttaa pyyntöjen JSON-rungon käytettäväksi (req.body)
-app.use(express.json());
+// Nostettu raja, jotta base64-kuvat mahtuvat pyynnön runkoon
+app.use(express.json({ limit: '10mb' }));
 
 // Lukee evästeet (JWT-token tulee evästeestä)
 app.use(cookieParser());

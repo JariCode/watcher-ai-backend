@@ -14,6 +14,12 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+
+  // Mahdollinen kuva base64-muodossa (data-URL). Tyhjä jos ei kuvaa.
+  image: {
+    type: String,
+    default: '',
+  },
 }, {
   // Jokainen viesti saa createdAt-aikaleiman
   timestamps: true,

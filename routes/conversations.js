@@ -96,10 +96,16 @@ router.delete('/:id', async (req, res) => {
 // Ottaa käyttäjän viestin, hakee Watcherin vastauksen, tallentaa molemmat
 router.post('/:id/messages', async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, image } = req.body;
 
-    if (!text || !text.trim()) {
+    // Viestissä pitää olla joko tekstiä tai kuva
+    if ((!text || !text.trim()) && !image) {
       return res.status(400).json({ error: 'Viesti ei voi olla tyhjä.' });
+    }
+
+    // Jos kuva on annettu, sen pitää olla kuva-data-URL (mikä tahansa kuvamuoto)
+    if (image && !/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(image)) {
+      return res.status(400).json({ error: 'Virheellinen kuvamuoto.' });
     }
 
     // Haetaan keskustelu — varmistetaan että se kuuluu käyttäjälle
@@ -112,18 +118,37 @@ router.post('/:id/messages', async (req, res) => {
       return res.status(404).json({ error: 'Keskustelua ei löytynyt.' });
     }
 
-    // Lisätään käyttäjän viesti keskusteluun
-    conversation.messages.push({ role: 'user', text: text.trim() });
+    // Lisätään käyttäjän viesti keskusteluun (teksti ei voi olla tyhjä mallissa,
+    // joten pelkän kuvan tapauksessa käytetään korviketekstiä)
+    const userText = text && text.trim() ? text.trim() : '(kuva)';
+    conversation.messages.push({
+      role: 'user',
+      text: userText,
+      image: image || '',
+    });
 
     // Rakennetaan viestihistoria OpenAI:lle:
     // persoona ensin, sitten koko keskustelun viestit
     const apiMessages = [
       { role: 'system', content: WATCHER_PERSONA },
-      ...conversation.messages.map((m) => ({
+      ...conversation.messages.map((m) => {
         // tietokannassa 'watcher', OpenAI:lle se on 'assistant'
-        role: m.role === 'watcher' ? 'assistant' : 'user',
-        content: m.text,
-      })),
+        const role = m.role === 'watcher' ? 'assistant' : 'user';
+
+        // Jos viestissä on kuva, content on taulukko: teksti + kuva (vision-muoto)
+        if (m.image) {
+          return {
+            role,
+            content: [
+              { type: 'text', text: m.text },
+              { type: 'image_url', image_url: { url: m.image } },
+            ],
+          };
+        }
+
+        // Tavallinen tekstiviesti
+        return { role, content: m.text };
+      }),
     ];
 
     // Kutsutaan OpenAI:ta
@@ -147,7 +172,7 @@ router.post('/:id/messages', async (req, res) => {
 
     // Jos keskustelulla ei vielä ole kunnon otsikkoa, tehdään se ensimmäisestä viestistä
     if (conversation.title === 'Uusi keskustelu') {
-      conversation.title = text.trim().slice(0, 40);
+      conversation.title = userText.slice(0, 40);
     }
 
     // Tallennetaan keskustelu (molemmat uudet viestit + mahdollinen otsikko)
