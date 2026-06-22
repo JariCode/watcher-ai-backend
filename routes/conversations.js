@@ -127,6 +127,69 @@ router.post('/:id/messages', async (req, res) => {
       image: image || '',
     });
 
+    // Tunnistetaan onko kyseessä kuvapyyntö (alkaa tietyllä fraasilla)
+    const lowerText = userText.toLowerCase().trim();
+    const imageRequest =
+      lowerText.startsWith('generoi kuva') ||
+      lowerText.startsWith('tee kuva') ||
+      lowerText.startsWith('piirrä') ||
+      lowerText.startsWith('luo kuva');
+
+    if (imageRequest) {
+      // Poistetaan tunnistusfraasi promptista, jätetään vain itse kuvaus
+      const imagePrompt = userText
+        .replace(/^(generoi kuva|tee kuva|piirrä|luo kuva)/i, '')
+        .trim();
+
+      // Jos kuvausta ei jäänyt, pyydetään tarkennusta
+      if (!imagePrompt) {
+        conversation.messages.push({
+          role: 'watcher',
+          text: 'Kerro mitä haluat minun loihtivan esiin.',
+        });
+        await conversation.save();
+        return res.json({ reply: 'Kerro mitä haluat minun loihtivan esiin.', title: conversation.title });
+      }
+
+      try {
+        // Generoidaan kuva OpenAI:n kuva-API:lla
+        const result = await openai.images.generate({
+          model: 'gpt-image-1',
+          prompt: imagePrompt,
+          size: '1024x1024',
+          quality: 'medium',
+        });
+
+        // Kuva tulee base64-muodossa — tehdään siitä data-URL
+        const b64 = result.data[0].b64_json;
+        const imageDataUrl = `data:image/png;base64,${b64}`;
+
+        // Tallennetaan Watcherin vastaus kuvana
+        conversation.messages.push({
+          role: 'watcher',
+          text: 'Loihdin sen esiin varjoista.',
+          image: imageDataUrl,
+        });
+
+        // Otsikko ensimmäisestä viestistä jos puuttuu
+        if (conversation.title === 'Uusi keskustelu') {
+          conversation.title = userText.slice(0, 40);
+        }
+
+        await conversation.save();
+
+        // Palautetaan kuva frontendille
+        return res.json({
+          reply: 'Loihdin sen esiin varjoista.',
+          image: imageDataUrl,
+          title: conversation.title,
+        });
+      } catch (error) {
+        console.error('Kuvan generointi epäonnistui:', error.message);
+        return res.status(502).json({ error: 'Kuvan loihtiminen epäonnistui. Yritä uudelleen.' });
+      }
+    }
+
     // Rakennetaan viestihistoria OpenAI:lle:
     // persoona ensin, sitten koko keskustelun viestit
     const apiMessages = [
