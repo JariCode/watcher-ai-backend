@@ -8,6 +8,18 @@ import Conversation from '../models/Conversation.js';
 // Luodaan reititin johon kerätään auth-reitit
 const router = express.Router();
 
+// Evästeen asetukset. Tuotannossa eväste kulkee Electronista Renderiin eri
+// originien välillä, joten sameSite on 'none' ja secure pakollinen.
+// Kehityksessä (localhost) käytetään 'lax' ilman securea.
+const isProduction = process.env.NODE_ENV === 'production';
+
+const cookieOptions = {
+  httpOnly: true,                              // JS ei pääse käsiksi (suoja XSS:ää vastaan)
+  secure: isProduction,                        // HTTPS-vaatimus tuotannossa (Render on HTTPS)
+  sameSite: isProduction ? 'none' : 'lax',     // 'none' sallii cross-origin tuotannossa
+  maxAge: 7 * 24 * 60 * 60 * 1000,             // 7 päivää millisekunteina
+};
+
 // Apufunktio: luo JWT-token ja asettaa sen httpOnly-evästeeseen
 function setTokenCookie(res, userId) {
   // Allekirjoitetaan token käyttäjän id:llä
@@ -15,13 +27,8 @@ function setTokenCookie(res, userId) {
     expiresIn: process.env.JWT_EXPIRES_IN, // esim. 7d
   });
 
-  // Asetetaan token evästeeseen jota selaimen JS ei pääse lukemaan
-  res.cookie('token', token, {
-    httpOnly: true,                                  // JS ei pääse käsiksi (suoja XSS:ää vastaan)
-    secure: process.env.NODE_ENV === 'production',   // vain HTTPS tuotannossa
-    sameSite: 'lax',                                 // suoja CSRF:ää vastaan
-    maxAge: 7 * 24 * 60 * 60 * 1000,                 // 7 päivää millisekunteina
-  });
+  // Asetetaan token evästeeseen samoilla asetuksilla joka ympäristössä
+  res.cookie('token', token, cookieOptions);
 }
 
 // --- REKISTERÖINTI ---
@@ -92,8 +99,9 @@ router.post('/login', async (req, res) => {
 
 // --- ULOSKIRJAUTUMINEN ---
 router.post('/logout', (req, res) => {
-  // Poistetaan token-eväste
-  res.clearCookie('token');
+  // Poistetaan token-eväste samoilla asetuksilla kuin se asetettiin
+  // (muuten eväste ei poistu tuotannossa)
+  res.clearCookie('token', cookieOptions);
   res.json({ message: 'Uloskirjautuminen onnistui.' });
 });
 
@@ -143,8 +151,8 @@ router.delete('/delete', requireAuth, async (req, res) => {
     // Poistetaan käyttäjä
     await User.findByIdAndDelete(req.userId);
 
-    // Poistetaan token-eväste (kirjaudutaan ulos)
-    res.clearCookie('token');
+    // Poistetaan token-eväste samoilla asetuksilla kuin se asetettiin
+    res.clearCookie('token', cookieOptions);
 
     res.json({ message: 'Tili ja kaikki keskustelut poistettu.' });
   } catch (error) {

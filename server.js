@@ -13,14 +13,33 @@ import adminRoutes from './routes/admin.js';
 // Luodaan Express-sovellus
 const app = express();
 
+// Render on välityspalvelimen (proxy) takana. Tämä kertoo Expressille että se
+// saa luottaa proxyn otsakkeisiin, jotta secure-eväste toimii tuotannossa.
+app.set('trust proxy', 1);
+
 // --- Middlewaret (väliohjelmat jotka käsittelevät jokaisen pyynnön) ---
 
 // Turvallisuusotsakkeet
 app.use(helmet());
 
+// Sallitut originit luetaan ympäristömuuttujasta (pilkulla eroteltuna).
+// Näin oikeat osoitteet eivät päädy koodiin eivätkä GitHubiin.
+// Esim. .env: ALLOWED_ORIGINS=http://localhost:5173
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim());
+
 // Sallitaan frontendin kutsut ja evästeiden lähetys
 app.use(cors({
-  origin: 'http://localhost:5173', // Viten kehitysosoite
+  origin: (origin, callback) => {
+    // Sallitaan myös pyynnöt ilman originia (esim. Electronin paikallinen palvelin
+    // tai palvelinten väliset kutsut), sekä listalla olevat originit
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS: origin ei ole sallittu'));
+    }
+  },
   credentials: true,                // sallii evästeet (JWT-token)
 }));
 
