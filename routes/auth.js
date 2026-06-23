@@ -17,6 +17,7 @@ const cookieOptions = {
   httpOnly: true,                              // JS ei pääse käsiksi (suoja XSS:ää vastaan)
   secure: isProduction,                        // HTTPS-vaatimus tuotannossa (Render on HTTPS)
   sameSite: isProduction ? 'none' : 'lax',     // 'none' sallii cross-origin tuotannossa
+  partitioned: isProduction,                   // CHIPS: vaaditaan cross-origin-evästeelle uusissa selaimissa
   maxAge: 7 * 24 * 60 * 60 * 1000,             // 7 päivää millisekunteina
 };
 
