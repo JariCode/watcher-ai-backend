@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import authRoutes from './routes/auth.js';
 import conversationRoutes from './routes/conversations.js';
 import adminRoutes from './routes/admin.js';
+import transcribeRoutes from './routes/transcribe.js';
 import { apiLimiter, authLimiter } from './middleware/rateLimiters.js';
 
 // Luodaan Express-sovellus
@@ -64,7 +65,7 @@ app.use(cors({
 }));
 
 // Muuttaa pyyntöjen JSON-rungon käytettäväksi (req.body)
-// Nostettu raja, jotta base64-kuvat mahtuvat pyynnön runkoon
+// Nostettu raja, jotta base64-kuvat ja äänileikkeet mahtuvat pyynnön runkoon
 app.use(express.json({ limit: '10mb' }));
 
 // Lukee evästeet (JWT-token tulee evästeestä)
@@ -85,6 +86,10 @@ app.use('/api/conversations', conversationRoutes);
 
 // Admin-reitit (vaativat admin-roolin)
 app.use('/api/admin', adminRoutes);
+
+// Puheentunnistusreitti (vaatii kirjautumisen). Ottaa äänileikkeen ja
+// palauttaa tekstin OpenAI Whisperin avulla.
+app.use('/api/transcribe', transcribeRoutes);
 
 // --- Yhteys MongoDB Atlasiin ---
 mongoose.connect(process.env.MONGO_URI)
