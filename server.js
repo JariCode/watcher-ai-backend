@@ -22,12 +22,16 @@ app.set('trust proxy', 1);
 // Turvallisuusotsakkeet
 app.use(helmet());
 
-// Sallitut originit luetaan ympäristömuuttujasta (pilkulla eroteltuna).
-// Näin oikeat osoitteet eivät päädy koodiin eivätkä GitHubiin.
-// Esim. .env: ALLOWED_ORIGINS=http://localhost:5173
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+// Sallitut originit ympäristömuuttujasta. Tuotannossa ei ole localhost-oletusta
+// (origin on pakko asettaa), kehityksessä localhost on oletus jos muuttujaa ei ole.
+const defaultOrigins = process.env.NODE_ENV === 'production'
+  ? ''
+  : 'http://localhost:5173';
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || defaultOrigins)
   .split(',')
-  .map((o) => o.trim());
+  .map((o) => o.trim())
+  .filter(Boolean);   // poistaa tyhjät (jos lista on tyhjä)
 
 // Sallitaan frontendin kutsut ja evästeiden lähetys
 app.use(cors({
