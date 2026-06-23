@@ -2,6 +2,7 @@ import express from 'express';
 import Conversation from '../models/Conversation.js';
 import requireAuth from '../middleware/requireAuth.js';
 import OpenAI from 'openai';
+import { messageLimiter } from '../middleware/rateLimiters.js';
 
 // OpenAI-asiakas — lukee avaimen .env:stä (ei koskaan koodissa)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -94,13 +95,29 @@ router.delete('/:id', async (req, res) => {
 
 // --- LÄHETÄ VIESTI WATCHERILLE ---
 // Ottaa käyttäjän viestin, hakee Watcherin vastauksen, tallentaa molemmat
-router.post('/:id/messages', async (req, res) => {
+router.post('/:id/messages', messageLimiter, async (req, res) => {
   try {
     const { text, image } = req.body;
+
+    // Tyyppivahti: jos teksti on annettu, sen on oltava merkkijono. Tämä torjuu
+    // NoSQL-injektion (esim. { "text": { "$gt": "" } }) ennen kuin data
+    // päätyy tietokantaan. Kuva tarkistetaan erikseen alla regexillä.
+    if (text !== undefined && typeof text !== 'string') {
+      return res.status(400).json({ error: 'Virheellinen syöte.' });
+    }
+    if (image !== undefined && typeof image !== 'string') {
+      return res.status(400).json({ error: 'Virheellinen syöte.' });
+    }
 
     // Viestissä pitää olla joko tekstiä tai kuva
     if ((!text || !text.trim()) && !image) {
       return res.status(400).json({ error: 'Viesti ei voi olla tyhjä.' });
+    }
+
+    // Viestin tekstin yläraja (selkeä virheviesti). Tiedoston sisältö liitetään
+    // tekstiin frontendissa, joten raja on reilu mutta estää massiiviset syötteet.
+    if (text && text.length > 10000) {
+      return res.status(400).json({ error: 'Viesti on liian pitkä (enintään 10000 merkkiä).' });
     }
 
     // Jos kuva on annettu, sen pitää olla kuva-data-URL (mikä tahansa kuvamuoto)

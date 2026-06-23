@@ -36,9 +36,24 @@ router.post('/register', async (req, res) => {
   try {
     const { username, password } = req.body;
 
+    // Tyyppivahti: kenttien on oltava merkkijonoja. Tämä torjuu NoSQL-injektion:
+    // jos joku lähettää esim. { "$gt": "" } objektina, se hylätään heti tässä
+    // eikä koskaan päädy tietokantakyselyyn.
+    if (typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Virheellinen syöte.' });
+    }
+
+    // Poistetaan käyttäjätunnuksen ympäriltä välilyönnit (sama kuin mallin trim)
+    const cleanUsername = username.trim();
+
     // Tarkistetaan että molemmat kentät on annettu
-    if (!username || !password) {
+    if (!cleanUsername || !password) {
       return res.status(400).json({ error: 'Käyttäjätunnus ja salasana vaaditaan.' });
+    }
+
+    // Käyttäjätunnuksen pituus 3–30 merkkiä (selkeä virheviesti käyttäjälle)
+    if (cleanUsername.length < 3 || cleanUsername.length > 30) {
+      return res.status(400).json({ error: 'Käyttäjätunnuksen on oltava 3–30 merkkiä.' });
     }
 
     // Salasanan minimipituus tarkistetaan myös täällä (ei vain frontendissa)
@@ -46,8 +61,15 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Salasanan on oltava vähintään 8 merkkiä.' });
     }
 
+    // Salasanan yläraja tavuissa. bcrypt käsittelee enintään 72 tavua ja katkaisee
+    // ylimenevän hiljaisesti, joten estetään se tilanne kokonaan. Mitataan tavut
+    // (ei merkkejä), koska ääkköset ja emojit vievät useamman tavun merkkiä kohden.
+    if (Buffer.byteLength(password, 'utf8') > 72) {
+      return res.status(400).json({ error: 'Salasana on liian pitkä (enintään 72 tavua).' });
+    }
+
     // Tarkistetaan ettei käyttäjätunnus ole jo varattu
-    const existing = await User.findOne({ username });
+    const existing = await User.findOne({ username: cleanUsername });
     if (existing) {
       return res.status(409).json({ error: 'Käyttäjätunnus on jo käytössä.' });
     }
@@ -56,7 +78,7 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Luodaan käyttäjä tietokantaan
-    const user = await User.create({ username, password: hashedPassword });
+    const user = await User.create({ username: cleanUsername, password: hashedPassword });
 
     // Kirjataan käyttäjä heti sisään (token evästeeseen)
     setTokenCookie(res, user._id);
@@ -74,12 +96,20 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    if (!username || !password) {
+    // Tyyppivahti: torjuu NoSQL-injektion myös kirjautumisessa
+    // (esim. { "username": "admin", "password": { "$gt": "" } })
+    if (typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Virheellinen syöte.' });
+    }
+
+    const cleanUsername = username.trim();
+
+    if (!cleanUsername || !password) {
       return res.status(400).json({ error: 'Käyttäjätunnus ja salasana vaaditaan.' });
     }
 
     // Etsitään käyttäjä
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ username: cleanUsername });
 
     // Tarkistetaan käyttäjä JA salasana — sama virheviesti molempiin
     // (ei paljasteta kumpi meni väärin, turvallisuussyy)
@@ -129,7 +159,8 @@ router.delete('/delete', requireAuth, async (req, res) => {
   try {
     const { password } = req.body;
 
-    if (!password) {
+    // Tyyppivahti myös tässä: salasanan on oltava merkkijono
+    if (typeof password !== 'string' || !password) {
       return res.status(400).json({ error: 'Salasana vaaditaan tilin poistoon.' });
     }
 

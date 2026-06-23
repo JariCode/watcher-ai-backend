@@ -6,21 +6,37 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import authRoutes from './routes/auth.js';
-import requireAuth from './middleware/requireAuth.js';
 import conversationRoutes from './routes/conversations.js';
 import adminRoutes from './routes/admin.js';
+import { apiLimiter, authLimiter } from './middleware/rateLimiters.js';
 
 // Luodaan Express-sovellus
 const app = express();
 
 // Render on välityspalvelimen (proxy) takana. Tämä kertoo Expressille että se
-// saa luottaa proxyn otsakkeisiin, jotta secure-eväste toimii tuotannossa.
+// saa luottaa proxyn otsakkeisiin, jotta secure-eväste ja oikea IP toimivat.
+// Oikean IP:n saaminen on tärkeää myös rate limitille (muuten kaikki pyynnöt
+// näyttäisivät tulevan samasta osoitteesta).
 app.set('trust proxy', 1);
 
 // --- Middlewaret (väliohjelmat jotka käsittelevät jokaisen pyynnön) ---
 
-// Turvallisuusotsakkeet
-app.use(helmet());
+// Turvallisuusotsakkeet. Tämä on JSON-API, joten viritetään helmet:
+// - HSTS pakottaa selaimen käyttämään HTTPS:ää (1 vuosi, myös alidomainit)
+// - referrerPolicy ei vuoda täyttä osoitetta ulkopuolisille
+app.use(helmet({
+  hsts: {
+    maxAge: 31536000,        // 1 vuosi sekunteina
+    includeSubDomains: true,
+  },
+  referrerPolicy: {
+    policy: 'strict-origin-when-cross-origin',
+  },
+}));
+
+// Yleinen pyyntöraja koko API:lle (liikakäytön suoja).
+// Asetetaan ennen reittejä, jotta se kattaa kaiken /api-liikenteen.
+app.use('/api', apiLimiter);
 
 // Sallitut originit ympäristömuuttujasta. Tuotannossa ei ole localhost-oletusta
 // (origin on pakko asettaa), kehityksessä localhost on oletus jos muuttujaa ei ole.
@@ -60,8 +76,9 @@ app.get('/api/test', (req, res) => {
 });
 
 // --- Reitit ---
-// Auth-reitit (rekisteröinti, kirjautuminen, uloskirjautuminen)
-app.use('/api/auth', authRoutes);
+// Auth-reitit (rekisteröinti, kirjautuminen, uloskirjautuminen).
+// authLimiter suojaa brute force -arvailulta (tiukempi kuin yleinen raja).
+app.use('/api/auth', authLimiter, authRoutes);
 
 // Keskustelureitit (vaativat kirjautumisen)
 app.use('/api/conversations', conversationRoutes);

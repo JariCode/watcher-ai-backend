@@ -9,9 +9,13 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true,        // poistaa välilyönnit alusta ja lopusta
     minlength: 3,
+    maxlength: 30,     // yläraja estää kohtuuttoman pitkät tunnukset
   },
 
-  // Salasana — tallennetaan AINA bcrypt-hashattuna, ei koskaan selkokielisenä
+  // Salasana — tallennetaan AINA bcrypt-hashattuna, ei koskaan selkokielisenä.
+  // HUOM: pituusrajaa ei aseteta tähän, koska tähän tallennetaan jo hashattu
+  // salasana (aina 60 merkkiä). Selkokielisen salasanan pituus tarkistetaan
+  // reitissä (auth.js) ennen hashausta.
   password: {
     type: String,
     required: true,

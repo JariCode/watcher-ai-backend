@@ -13,9 +13,13 @@ const messageSchema = new mongoose.Schema({
   text: {
     type: String,
     required: true,
+    maxlength: 10000,   // yläraja estää kohtuuttoman pitkät viestit
+                        // (tiedoston sisältö liitetään tekstiin, joten raja on reilu)
   },
 
   // Mahdollinen kuva base64-muodossa (data-URL). Tyhjä jos ei kuvaa.
+  // EI pituusrajaa: base64-kuva on satojatuhansia merkkejä. Koko on jo
+  // rajattu muualla (express.json 10mb -raja + kuvan data-URL -validointi).
   image: {
     type: String,
     default: '',
@@ -34,10 +38,12 @@ const conversationSchema = new mongoose.Schema({
     required: true,
   },
 
-  // Keskustelun otsikko (esim. ensimmäisestä viestistä lyhennetty)
+  // Keskustelun otsikko (esim. ensimmäisestä viestistä lyhennetty).
+  // Otsikko tehdään viestin alusta (slice 0,40), joten raja on varmuuden vuoksi.
   title: {
     type: String,
     default: 'Uusi keskustelu',
+    maxlength: 100,
   },
 
   // Lista viestejä — käyttää yllä määriteltyä messageSchemaa
