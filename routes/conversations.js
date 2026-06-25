@@ -3,6 +3,12 @@ import Conversation from '../models/Conversation.js';
 import requireAuth from '../middleware/requireAuth.js';
 import OpenAI from 'openai';
 import { messageLimiter } from '../middleware/rateLimiters.js';
+import { createRequire } from 'module';
+
+// pdf-parse v2 vie PDFParse-luokan (ei suoraa funktiota).
+// Tuodaan createRequire:n kautta, koska paketti on CommonJS.
+const require = createRequire(import.meta.url);
+const { PDFParse } = require('pdf-parse');
 
 // OpenAI-asiakas — lukee avaimen .env:stä (ei koskaan koodissa)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -97,7 +103,8 @@ router.delete('/:id', async (req, res) => {
 // Ottaa käyttäjän viestin, hakee Watcherin vastauksen, tallentaa molemmat
 router.post('/:id/messages', messageLimiter, async (req, res) => {
   try {
-    const { text, image } = req.body;
+    // file = PDF base64-data-URL, fileName = sen nimi (molemmat vapaaehtoisia)
+    const { text, image, file, fileName } = req.body;
 
     // Tyyppivahti: jos teksti on annettu, sen on oltava merkkijono. Tämä torjuu
     // NoSQL-injektion (esim. { "text": { "$gt": "" } }) ennen kuin data
@@ -108,9 +115,16 @@ router.post('/:id/messages', messageLimiter, async (req, res) => {
     if (image !== undefined && typeof image !== 'string') {
       return res.status(400).json({ error: 'Virheellinen syöte.' });
     }
+    // file (PDF) ja fileName pitää myös olla merkkijonoja jos annettu
+    if (file !== undefined && typeof file !== 'string') {
+      return res.status(400).json({ error: 'Virheellinen syöte.' });
+    }
+    if (fileName !== undefined && typeof fileName !== 'string') {
+      return res.status(400).json({ error: 'Virheellinen syöte.' });
+    }
 
-    // Viestissä pitää olla joko tekstiä tai kuva
-    if ((!text || !text.trim()) && !image) {
+    // Viestissä pitää olla tekstiä, kuva tai PDF-tiedosto
+    if ((!text || !text.trim()) && !image && !file) {
       return res.status(400).json({ error: 'Viesti ei voi olla tyhjä.' });
     }
 
@@ -125,6 +139,54 @@ router.post('/:id/messages', messageLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Virheellinen kuvamuoto.' });
     }
 
+    // --- PDF-liite ---
+    // Frontend lähettää PDF:n base64-data-URL:na (file). PDF puretaan tekstiksi
+    // täällä backendissa, koska selainpurku (pdfjs) ei toimi luotettavasti
+    // Safarissa/iPhonessa. Teksti liitetään viestiin samassa muodossa kuin
+    // Word/Excel frontendissa. Base64:ää ei tallenneta mihinkään.
+    let pdfText = '';
+    if (file) {
+      // file pitää olla PDF-data-URL
+      if (!/^data:application\/pdf;base64,/.test(file)) {
+        return res.status(400).json({ error: 'Virheellinen tiedostomuoto.' });
+      }
+
+      // Erotetaan base64 etuliitteestä
+      const base64 = file.split(',')[1] || '';
+
+      // Kokotarkistus backendissa (frontendin raja on helppo ohittaa).
+      // base64 on n. 1.33x alkuperäisestä — lasketaan likimääräinen tavukoko.
+      const approxBytes = (base64.length * 3) / 4;
+      if (approxBytes > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Tiedosto on liian suuri (max 5 Mt).' });
+      }
+
+      // Muunnetaan base64 takaisin binääripuskuriksi
+      const buffer = Buffer.from(base64, 'base64');
+
+      // Varmistetaan että puskuri todella alkaa PDF:n tunnisteella (%PDF).
+      // Estää sen että joku lähettää muun tiedoston PDF:nä naamioituna.
+      if (buffer.slice(0, 4).toString() !== '%PDF') {
+        return res.status(400).json({ error: 'Tiedosto ei ole kelvollinen PDF.' });
+      }
+
+      // Puretaan teksti pdf-parse v2:lla: luodaan PDFParse-olio puskurista
+      // ja kutsutaan getText(). Paketti ei aja PDF:n sisäistä koodia (turvallinen).
+      try {
+        const parser = new PDFParse({ data: buffer });
+        const result = await parser.getText();
+        pdfText = result.text || '';
+      } catch (err) {
+        console.error('PDF:n purku epäonnistui:', err.message);
+        return res.status(400).json({ error: 'PDF:n luku epäonnistui.' });
+      }
+
+      // Skannattu kuva-PDF tulee tyhjänä — ilmoitetaan selkeästi
+      if (!pdfText.trim()) {
+        return res.status(400).json({ error: 'PDF:stä ei löytynyt tekstiä. Se voi olla skannattu kuva-PDF.' });
+      }
+    }
+
     // Haetaan keskustelu — varmistetaan että se kuuluu käyttäjälle
     const conversation = await Conversation.findOne({
       _id: req.params.id,
@@ -135,9 +197,18 @@ router.post('/:id/messages', messageLimiter, async (req, res) => {
       return res.status(404).json({ error: 'Keskustelua ei löytynyt.' });
     }
 
-    // Lisätään käyttäjän viesti keskusteluun (teksti ei voi olla tyhjä mallissa,
-    // joten pelkän kuvan tapauksessa käytetään korviketekstiä)
-    const userText = text && text.trim() ? text.trim() : '(kuva)';
+    // Rakennetaan käyttäjän viestin teksti: kirjoitettu teksti + mahdollinen
+    // purettu PDF-teksti. Sama muoto kuin Word/Excel frontendissa.
+    let userText = text && text.trim() ? text.trim() : '';
+    if (pdfText) {
+      const namePart = fileName || 'tiedosto.pdf';
+      userText += `${userText ? '\n\n' : ''}[Tiedosto: ${namePart}]\n${pdfText}`;
+    }
+    // Jos ei tekstiä eikä PDF:ää (vain kuva), käytetään korviketekstiä
+    if (!userText) userText = '(kuva)';
+
+    // Lisätään käyttäjän viesti keskusteluun (base64-PDF:ää ei tallenneta,
+    // vain siitä purettu teksti)
     conversation.messages.push({
       role: 'user',
       text: userText,
