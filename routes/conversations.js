@@ -130,8 +130,8 @@ router.post('/:id/messages', messageLimiter, async (req, res) => {
 
     // Viestin tekstin yläraja (selkeä virheviesti). Tiedoston sisältö liitetään
     // tekstiin frontendissa, joten raja on reilu mutta estää massiiviset syötteet.
-    if (text && text.length > 10000) {
-      return res.status(400).json({ error: 'Viesti on liian pitkä (enintään 10000 merkkiä).' });
+    if (text && text.length > 50000) {
+      return res.status(400).json({ error: 'Viesti on liian pitkä (enintään 50000 merkkiä).' });
     }
 
     // Jos kuva on annettu, sen pitää olla kuva-data-URL (mikä tahansa kuvamuoto)
@@ -157,8 +157,8 @@ router.post('/:id/messages', messageLimiter, async (req, res) => {
       // Kokotarkistus backendissa (frontendin raja on helppo ohittaa).
       // base64 on n. 1.33x alkuperäisestä — lasketaan likimääräinen tavukoko.
       const approxBytes = (base64.length * 3) / 4;
-      if (approxBytes > 5 * 1024 * 1024) {
-        return res.status(400).json({ error: 'Tiedosto on liian suuri (max 5 Mt).' });
+      if (approxBytes > 10 * 1024 * 1024) {
+        return res.status(400).json({ error: 'Tiedosto on liian suuri (max 10 Mt).' });
       }
 
       // Muunnetaan base64 takaisin binääripuskuriksi
@@ -184,6 +184,11 @@ router.post('/:id/messages', messageLimiter, async (req, res) => {
       // Skannattu kuva-PDF tulee tyhjänä — ilmoitetaan selkeästi
       if (!pdfText.trim()) {
         return res.status(400).json({ error: 'PDF:stä ei löytynyt tekstiä. Se voi olla skannattu kuva-PDF.' });
+      }
+
+      // Liian pitkä PDF-teksti torjutaan samalla rajalla kuin muutkin tiedostot
+      if (pdfText.length > 50000) {
+        return res.status(400).json({ error: 'PDF:n sisältö on liian pitkä (max 50000 merkkiä). Kokeile pienempää tiedostoa.' });
       }
     }
 

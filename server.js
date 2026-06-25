@@ -66,7 +66,7 @@ app.use(cors({
 
 // Muuttaa pyyntöjen JSON-rungon käytettäväksi (req.body)
 // Nostettu raja, jotta base64-kuvat ja äänileikkeet mahtuvat pyynnön runkoon
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
 
 // Lukee evästeet (JWT-token tulee evästeestä)
 app.use(cookieParser());
