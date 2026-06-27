@@ -23,131 +23,138 @@ const cookieOptions = {
 
 // Apufunktio: luo JWT-token ja asettaa sen httpOnly-evästeeseen
 function setTokenCookie(res, userId) {
-  // Allekirjoitetaan token käyttäjän id:llä
-  const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN, // esim. 7d
-  });
-
-  // Asetetaan token evästeeseen samoilla asetuksilla joka ympäristössä
+  // Allekirjoitetaan token. Payloadina käyttäjän id, salaisuus .env-tiedostosta.
+  const token = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  
+  // Asetetaan eväste vastaukseen
   res.cookie('token', token, cookieOptions);
 }
 
 // --- REKISTERÖINTI ---
+// Luo uuden käyttäjän. Tunnuksen on oltava uniikki ja salasanan vähintään 8 merkkiä.
 router.post('/register', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // Tyyppivahti: kenttien on oltava merkkijonoja. Tämä torjuu NoSQL-injektion:
-    // jos joku lähettää esim. { "$gt": "" } objektina, se hylätään heti tässä
-    // eikä koskaan päädy tietokantakyselyyn.
+    // Tyyppivahdit: varmistetaan että syötteet ovat merkkijonoja.
+    // Estää NoSQL-injektiot (esim. jos joku lähettäisi objektin tai taulukon).
     if (typeof username !== 'string' || typeof password !== 'string') {
-      return res.status(400).json({ error: 'Virheellinen syöte.' });
+      return res.status(400).json({ error: 'Virheelliset kentät.' });
     }
 
-    // Poistetaan käyttäjätunnuksen ympäriltä välilyönnit (sama kuin mallin trim)
-    const cleanUsername = username.trim();
+    // Siistitään käyttäjätunnus (poistetaan turhat välilyönnit alusta ja lopusta)
+    const trimmedUsername = username.trim();
 
-    // Tarkistetaan että molemmat kentät on annettu
-    if (!cleanUsername || !password) {
-      return res.status(400).json({ error: 'Käyttäjätunnus ja salasana vaaditaan.' });
+    // Validointi: pituusrajoitukset (sama kuin frontendissä)
+    if (trimmedUsername.length < 3 || trimmedUsername.length > 30) {
+      return res.status(400).json({ error: 'Käyttäjätunnuksen on oltava 3-30 merkkiä.' });
     }
-
-    // Käyttäjätunnuksen pituus 3–30 merkkiä (selkeä virheviesti käyttäjälle)
-    if (cleanUsername.length < 3 || cleanUsername.length > 30) {
-      return res.status(400).json({ error: 'Käyttäjätunnuksen on oltava 3–30 merkkiä.' });
-    }
-
-    // Salasanan minimipituus tarkistetaan myös täällä (ei vain frontendissa)
     if (password.length < 8) {
       return res.status(400).json({ error: 'Salasanan on oltava vähintään 8 merkkiä.' });
     }
 
-    // Salasanan yläraja tavuissa. bcrypt käsittelee enintään 72 tavua ja katkaisee
-    // ylimenevän hiljaisesti, joten estetään se tilanne kokonaan. Mitataan tavut
-    // (ei merkkejä), koska ääkköset ja emojit vievät useamman tavun merkkiä kohden.
-    if (Buffer.byteLength(password, 'utf8') > 72) {
-      return res.status(400).json({ error: 'Salasana on liian pitkä (enintään 72 tavua).' });
+    // Tarkistetaan onko tunnus jo käytössä.
+    // Hakuehdossa käytetään collation-asetusta (locale: 'fi', strength: 2),
+    // mikä tekee hausta case-insensitive-haun (esim. "Matti" ja "matti" ovat sama asia).
+    const existingUser = await User.findOne({ username: trimmedUsername })
+      .collation({ locale: 'fi', strength: 2 });
+      
+    if (existingUser) {
+      return res.status(400).json({ error: 'Käyttäjätunnus on jo varattu.' });
     }
 
-    // Tarkistetaan ettei käyttäjätunnus ole jo varattu
-    const existing = await User.findOne({ username: cleanUsername });
-    if (existing) {
-      return res.status(409).json({ error: 'Käyttäjätunnus on jo käytössä.' });
-    }
+    // Hashataan salasana ennen tallennusta. Salt rounds = 12 (turvallinen ja vahva).
+    const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Hashataan salasana — ei koskaan tallenneta selkokielisenä
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Luodaan uusi käyttäjä tietokantaan. Ensimmäinen käyttäjä saa defaultina roolin 'user'.
+    const newUser = new User({
+      username: trimmedUsername,
+      password: hashedPassword,
+    });
 
-    // Luodaan käyttäjä tietokantaan
-    const user = await User.create({ username: cleanUsername, password: hashedPassword });
+    await newUser.save();
 
-    // Kirjataan käyttäjä heti sisään (token evästeeseen)
-    setTokenCookie(res, user._id);
+    // Kirjataan käyttäjä suoraan sisään luomalla token-eväste
+    setTokenCookie(res, newUser._id);
 
-    // Palautetaan käyttäjän tiedot (EI salasanaa)
-    res.status(201).json({ id: user._id, username: user.username, role: user.role });
+    // Palautetaan käyttäjän tiedot (ei salasanaa!) frontendille
+    res.status(201).json({
+      id: newUser._id,
+      username: newUser.username,
+      role: newUser.role,
+    });
   } catch (error) {
-    console.error('Rekisteröintivirhe:', error.message);
+    console.error('Rekisteröinti epäonnistui:', error.message);
     res.status(500).json({ error: 'Rekisteröinti epäonnistui.' });
   }
 });
 
 // --- KIRJAUTUMINEN ---
+// Tarkistaa tunnuksen ja salasanan, asettaa evästeen.
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // Tyyppivahti: torjuu NoSQL-injektion myös kirjautumisessa
-    // (esim. { "username": "admin", "password": { "$gt": "" } })
+    // Tyyppivahdit NoSQL-injektioiden estämiseksi
     if (typeof username !== 'string' || typeof password !== 'string') {
-      return res.status(400).json({ error: 'Virheellinen syöte.' });
+      return res.status(400).json({ error: 'Virheelliset kentät.' });
     }
 
-    const cleanUsername = username.trim();
+    const trimmedUsername = username.trim();
 
-    if (!cleanUsername || !password) {
-      return res.status(400).json({ error: 'Käyttäjätunnus ja salasana vaaditaan.' });
-    }
+    // Haetaan käyttäjä tunnuksella (case-insensitive)
+    const user = await User.findOne({ username: trimmedUsername })
+      .collation({ locale: 'fi', strength: 2 });
 
-    // Etsitään käyttäjä
-    const user = await User.findOne({ username: cleanUsername });
-
-    // Tarkistetaan käyttäjä JA salasana — sama virheviesti molempiin
-    // (ei paljasteta kumpi meni väärin, turvallisuussyy)
-    if (!user || !(await bcrypt.compare(password, user.password))) {
+    // Jos käyttäjää ei löydy, älä paljasta sitä erikseen tietoturvasyistä
+    if (!user) {
       return res.status(401).json({ error: 'Väärä käyttäjätunnus tai salasana.' });
     }
 
-    // Kirjataan sisään
+    // Verrataan annettua salasanaa hashattuun salasanaan
+    const passwordOk = await bcrypt.compare(password, user.password);
+    if (!passwordOk) {
+      return res.status(401).json({ error: 'Väärä käyttäjätunnus tai salasana.' });
+    }
+
+    // Salasana oikein → luodaan token-eväste
     setTokenCookie(res, user._id);
 
-    res.json({ id: user._id, username: user.username, role: user.role });
+    // Palautetaan käyttäjätiedot frontendille
+    res.json({
+      id: user._id,
+      username: user.username,
+      role: user.role,
+    });
   } catch (error) {
-    console.error('Kirjautumisvirhe:', error.message);
+    console.error('Kirjautuminen epäonnistui:', error.message);
     res.status(500).json({ error: 'Kirjautuminen epäonnistui.' });
   }
 });
 
 // --- ULOSKIRJAUTUMINEN ---
+// Poistaa token-evästeen selaimesta.
 router.post('/logout', (req, res) => {
-  // Poistetaan token-eväste samoilla asetuksilla kuin se asetettiin
-  // (muuten eväste ei poistu tuotannossa)
+  // Tyhjennetään eväste samoilla asetuksilla kuin se luotiin
   res.clearCookie('token', cookieOptions);
-  res.json({ message: 'Uloskirjautuminen onnistui.' });
+  res.json({ message: 'Kirjattu ulos.' });
 });
 
-// --- KUKA ON KIRJAUTUNUT ---
-// Frontend kutsuu tätä latautuessaan: jos token on voimassa, palautetaan käyttäjä
+// --- HAE OMAT TIEDOT (ME) ---
+// Palauttaa kirjautuneen käyttäjän tiedot (käytetään kun sivu ladataan uudestaan).
 router.get('/me', requireAuth, async (req, res) => {
   try {
-    // Haetaan käyttäjä, mukaan myös rooli
+    // requireAuth asetti req.userId:n, haetaan sillä käyttäjä
     const user = await User.findById(req.userId).select('username role');
-
     if (!user) {
-      return res.status(404).json({ error: 'Käyttäjää ei löytynyt.' });
+      return res.status(401).json({ error: 'Käyttäjää ei löydy.' });
     }
 
-    res.json({ id: user._id, username: user.username, role: user.role });
+    res.json({
+      id: user._id,
+      username: user.username,
+      role: user.role,
+    });
   } catch (error) {
     console.error('Käyttäjän haku epäonnistui:', error.message);
     res.status(500).json({ error: 'Käyttäjän haku epäonnistui.' });
@@ -169,6 +176,12 @@ router.delete('/delete', requireAuth, async (req, res) => {
     const user = await User.findById(req.userId);
     if (!user) {
       return res.status(404).json({ error: 'Käyttäjää ei löytynyt.' });
+    }
+
+    // ESTO: Estetään admin-käyttäjää poistamasta omaa tiliään,
+    // jotta sovellus ei jää vahingossakaan ilman ylläpitäjää.
+    if (user.role === 'admin') {
+      return res.status(403).json({ error: 'Admin-käyttäjä ei voi poistaa omaa tiliään.' });
     }
 
     // Varmistetaan salasana ennen poistoa
