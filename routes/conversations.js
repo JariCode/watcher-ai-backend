@@ -134,6 +134,17 @@ router.post('/:id/messages', messageLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Viesti on liian pitkä (enintään 50000 merkkiä).' });
     }
 
+    // --- KORJAUS: ENNAKKOTARKISTUS MUISTIN LOPPUMISTA VASTAAN ---
+    // Hylätään liian suuret raa'at merkkijonot heti, ennen kuin palvelin alkaa 
+    // luoda niistä kuluttavia puskureita tai käsitellä niitä kirjastoilla.
+    // 10 megatavua on Base64-muodossa reilu 14 miljoonaa merkkiä.
+    if (file && file.length > 14500000) {
+      return res.status(400).json({ error: 'Tiedosto on liian suuri (max 10 Mt).' });
+    }
+    if (image && image.length > 14500000) {
+      return res.status(400).json({ error: 'Kuva on liian suuri (max 10 Mt).' });
+    }
+
     // Jos kuva on annettu, sen pitää olla kuva-data-URL (mikä tahansa kuvamuoto)
     if (image && !/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(image)) {
       return res.status(400).json({ error: 'Virheellinen kuvamuoto.' });
