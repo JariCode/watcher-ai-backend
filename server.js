@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import conversationRoutes from './routes/conversations.js';
 import adminRoutes from './routes/admin.js';
 import transcribeRoutes from './routes/transcribe.js';
+import speechRoutes from './routes/speech.js';
 import { apiLimiter, authLimiter } from './middleware/rateLimiters.js';
 
 // Luodaan Express-sovellus
@@ -90,6 +91,10 @@ app.use('/api/admin', adminRoutes);
 // Puheentunnistusreitti (vaatii kirjautumisen). Ottaa äänileikkeen ja
 // palauttaa tekstin OpenAI Whisperin avulla.
 app.use('/api/transcribe', transcribeRoutes);
+
+// Puheeksi muunnon reitti (vaatii kirjautumisen). Ottaa Watcherin viestin
+// tekstinä ja palauttaa sen puhuttuna äänenä OpenAI:n TTS:n avulla.
+app.use('/api/speech', speechRoutes);
 
 // --- Yhteys MongoDB Atlasiin ---
 mongoose.connect(process.env.MONGO_URI)

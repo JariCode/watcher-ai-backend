@@ -33,3 +33,13 @@ export const messageLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// --- Puheeksi muunnon suoja (OpenAI TTS-kustannukset) ---
+// Sama periaate kuin messageLimiter: jokainen klikkaus on OpenAI-kutsu.
+export const speechLimiter = rateLimit({
+  windowMs: 60 * 1000,                 // 1 minuutti
+  max: 20,                             // enintään 20 ääntä / IP / minuutti
+  message: { error: 'Liian monta äänipyyntöä. Hetki.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
