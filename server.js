@@ -11,6 +11,7 @@ import adminRoutes from './routes/admin.js';
 import transcribeRoutes from './routes/transcribe.js';
 import speechRoutes from './routes/speech.js';
 import { apiLimiter, authLimiter } from './middleware/rateLimiters.js';
+import csrfProtection, { issueCsrfToken } from './middleware/csrf.js';
 
 // Luodaan Express-sovellus
 const app = express();
@@ -71,6 +72,12 @@ app.use(express.json({ limit: '15mb' }));
 
 // Lukee evästeet (JWT-token tulee evästeestä)
 app.use(cookieParser());
+
+// CSRF-token evästeeseen perustuville tilaa muuttaville pyynnöille.
+app.get('/api/csrf-token', (req, res) => {
+  res.json({ csrfToken: issueCsrfToken(res) });
+});
+app.use('/api', csrfProtection);
 
 // --- Testireitti: tarkistaa että palvelin vastaa ---
 app.get('/api/test', (req, res) => {
